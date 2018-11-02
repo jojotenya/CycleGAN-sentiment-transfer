@@ -4,6 +4,10 @@ basic module of tensorflow
 import numpy as np
 import tensorflow as tf
 from functools import reduce
+from tensorflow.python.ops import control_flow_ops
+from tensorflow.python.ops import array_ops
+from tensorflow.python.framework import dtypes
+from tensorflow.python.framework import ops
 
 def linear_matmul(inputs,weight):
     hid_dim = weight.get_shape().as_list()[0]
@@ -85,3 +89,18 @@ def get_seq_len(seq):
     seq = tf.sign(seq)
     seq_len = tf.reduce_sum(seq,axis=1)
     return tf.stop_gradient(seq_len)
+
+def add_check_numerics_ops():
+  check_op = []
+  for op in ops.get_default_graph().get_operations():
+    for output in op.outputs:
+      if output.dtype in [dtypes.float16, dtypes.float32, dtypes.float64]:
+        if op._get_control_flow_context() is not None:  # pylint: disable=protected-access
+          print("`tf.add_check_numerics_ops() is not compatible "
+                           "with TensorFlow control flow operations such as "
+                           "`tf.cond()` or `tf.while_loop()`.")
+
+        message = op.name + ":" + str(output.value_index)
+        with ops.control_dependencies(check_op):
+          check_op = [array_ops.check_numerics(output, message=message)]
+  return control_flow_ops.group(*check_op)

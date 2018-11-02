@@ -43,7 +43,8 @@ class data_utils():
 
 
     def sent2id(self,sent):
-        vec = np.zeros((self.sent_length),dtype=np.int32) + self.EOS_id
+        vec = np.zeros((self.sent_length),dtype=np.int32)
+        #vec = np.zeros((self.sent_length),dtype=np.int32) + self.EOS_id
         pat = re.compile('(\W+)')
         sent_list = ' '.join(re.split(pat,sent.lower().strip())).split()
         i = 0

@@ -18,9 +18,11 @@ def ResBlock(name, inputs):
     return inputs + (0.3*output)
 
 
-def discriminator(inputs):
+def discriminator(inputs,word_embedding_dim=300):
+    # (36, 26, 1024)
     output = tf.transpose(inputs, [0,2,1])
-    output = tflib.ops.conv1d.Conv1D('discriminator.Input',200, DIM, 1, output)
+    # (36, 1024, 26)
+    output = tflib.ops.conv1d.Conv1D('discriminator.Input',word_embedding_dim, DIM, 1, output)
     output = ResBlock('discriminator.1', output)
     output = ResBlock('discriminator.2', output)
     output = ResBlock('discriminator.3', output)

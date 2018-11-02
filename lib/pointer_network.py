@@ -85,7 +85,7 @@ def pointer_network(
 
 
         def get_vocab_distribution(state,attention_context):
-            hidden = tf.layers.dense(tf.concat([state,attention_context],axis=1),200,name='P_vocab_projection1')
+            hidden = tf.layers.dense(tf.concat([state,attention_context],axis=1),300,name='P_vocab_projection1')
             vocab_weight = tf.layers.dense(hidden,vocab_size,name='P_vocab_projection2')
             return tf.nn.softmax(vocab_weight)
 

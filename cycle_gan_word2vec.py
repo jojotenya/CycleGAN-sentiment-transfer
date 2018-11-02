@@ -2,8 +2,8 @@ from lib.seq2seq import seq2seq
 from lib.discriminator import discriminator
 from lib.discriminator_X import discriminator_X
 from lib.ops import *
-from elmo_data_utils import *
-from functools import reduce,partial
+from data_utils import *
+from functools import reduce
 import tensorflow as tf
 import numpy as np
 import os
@@ -34,10 +34,10 @@ class cycle_gan():
         #the model of generator, reconstructor, discriminator will be save in seperately directory
         self.model_dir = args.model_dir
 
-        self.word_embedding_dim = 1024 
-        self.elmo_dim = 1024
-        self.BOS = self.utils.emb.sents2elmo([["<bos>"]]) 
-        self.EOS = self.utils.emb.sents2elmo([["<eos>"]]) 
+        self.vocab_size = len(self.utils.id_word_dict)
+        self.word_embedding_dim = 300
+        self.BOS = self.utils.BOS_id
+        self.EOS = self.utils.EOS_id
 
         # check nan, inf
         if args.check_nan and (args.check_nan).lower() == 'false': args.check_nan = False
@@ -45,6 +45,12 @@ class cycle_gan():
         self.check_nan_op = tf.add_check_numerics_ops
 
         self.build_model()
+
+    def zero2EOS(self, inputs):
+        condition_zero = tf.equal(inputs, 0)
+        case_true = tf.ones(inputs.shape,dtype=tf.int32)*self.EOS
+        inputs = tf.where(condition_zero, case_true, inputs)
+        return inputs
 
     def build_model(self):
 
@@ -112,38 +118,36 @@ class cycle_gan():
         """
         def build_XYX_graph():
             with tf.variable_scope("XYX_inputs"):
-                self.X2Y_inputs = tf.placeholder(dtype=tf.float32, shape=(self.batch_size, self.sequence_length,self.elmo_dim))
+                self.X2Y_inputs = tf.placeholder(dtype=tf.int32, shape=(self.batch_size, self.sequence_length))
                 X2Y_inputs = tf.concat([self.X2Y_inputs,EOS_slice],axis=1)
-                #X2Y_inputs_lens = tf.reduce_sum(tf.sign(X2Y_inputs), 1)
-                self.X2Y_inputs_lens = tf.placeholder(dtype=tf.int32, shape=(self.batch_size,))
-                X2Y_inputs_lens = self.X2Y_inputs_lens+1
-                #X2Y_inputs = tf.nn.embedding_lookup(word_embedding_matrix, X2Y_inputs)
+                X2Y_inputs_len = tf.reduce_sum(tf.sign(X2Y_inputs), 1)
+                #X2Y_inputs_len = tf.Print(X2Y_inputs_len,[X2Y_inputs_len],"X2Y_inputs_len: ")
+                X2Y_inputs = self.zero2EOS(X2Y_inputs)
+                #X2Y_inputs = tf.Print(X2Y_inputs,[X2Y_inputs],"X2Y_inputs: ")
+                X2Y_inputs = tf.nn.embedding_lookup(word_embedding_matrix, X2Y_inputs)
 
-                self.real_Y_sample = tf.placeholder(dtype=tf.float32, shape=(self.batch_size,self.sequence_length,self.elmo_dim))
+                self.real_Y_sample = tf.placeholder(dtype=tf.int32, shape=(self.batch_size,self.sequence_length))
                 real_Y_sample = tf.concat([self.real_Y_sample,EOS_slice],axis=1)
-                #real_Y_sample_lens = tf.reduce_sum(tf.sign(real_Y_sample), 1)
-                self.real_Y_sample_lens = tf.placeholder(dtype=tf.int32, shape=(self.batch_size,))
-                real_Y_sample_lens = self.real_Y_sample_lens+1
-                #real_Y_sample = tf.nn.embedding_lookup(word_embedding_matrix, real_Y_sample)
+                real_Y_sample_len = tf.reduce_sum(tf.sign(real_Y_sample), 1)
+                real_Y_sample = self.zero2EOS(real_Y_sample)
+                real_Y_sample = tf.nn.embedding_lookup(word_embedding_matrix, real_Y_sample)
                 
                 Y2X_decoder_inputs = tf.concat([BOS_slice,self.X2Y_inputs],axis=1)
-                Y2X_decoder_inputs_len = tf.reduce_sum(tf.sign(Y2X_decoder_inputs), 1)
-                #Y2X_decoder_inputs = tf.nn.embedding_lookup(word_embedding_matrix, Y2X_decoder_inputs)
+                #Y2X_decoder_inputs_len = tf.reduce_sum(tf.sign(Y2X_decoder_inputs), 1)
+                Y2X_decoder_inputs = tf.nn.embedding_lookup(word_embedding_matrix, Y2X_decoder_inputs)
 
+                X2Y_decoder_inputs = tf.zeros([self.batch_size,self.sequence_length+1],dtype=tf.int32) + self.BOS
                 if self.mode=='pretrain':
                     X2Y_decoder_inputs = tf.concat([BOS_slice,self.X2Y_inputs],axis=1)
-                else:
-                    X2Y_decoder_inputs = np.array(self.BOS*(self.batch_size*(self.sequence_length+1)))
-                    X2Y_decoder_inputs = X2Y_decoder_inputs.reshape(self.batch_size,self.sequence_length+1,-1)
-                    X2Y_decoder_inputs = tf.convert_to_tensor(X2Y_decoder_inputs)
+                    #X2Y_decoder_inputs = tf.Print(X2Y_decoder_inputs,[X2Y_decoder_inputs],"X2Y_decoder_inputs: ")
                 #X2Y_decoder_inputs_len = tf.reduce_sum(tf.sign(X2Y_decoder_inputs), 1)
-                #X2Y_decoder_inputs = tf.nn.embedding_lookup(word_embedding_matrix, X2Y_decoder_inputs)
+                X2Y_decoder_inputs = tf.nn.embedding_lookup(word_embedding_matrix, X2Y_decoder_inputs)
 
             with tf.variable_scope("generator_X2Y") as scope:
                 X2Y_outputs = seq2seq(
                     encoder_inputs = X2Y_inputs,
                     #encoder_length = self.lstm_length,
-                    encoder_length = X2Y_inputs_lens,
+                    encoder_length = X2Y_inputs_len,
                     decoder_inputs = X2Y_decoder_inputs,
                     word_embedding_dim = self.word_embedding_dim,
                     mode = self.mode
@@ -156,7 +160,7 @@ class cycle_gan():
                 Y2Y_outputs = seq2seq(
                     encoder_inputs = real_Y_sample,
                     #encoder_length = self.lstm_length,
-                    encoder_length = real_Y_sample_lens,
+                    encoder_length = real_Y_sample_len,
                     decoder_inputs = real_Y_sample,
                     word_embedding_dim = self.word_embedding_dim,
                     mode = self.mode
@@ -173,14 +177,14 @@ class cycle_gan():
                 )
 
             with tf.variable_scope("discriminator_Y") as scope:                
-                false_Y_sample_score = discriminator(X2Y_outputs,self.word_embedding_dim)
+                false_Y_sample_score = discriminator(X2Y_outputs)
                 self.false_Y_sample_score = tf.reduce_mean(false_Y_sample_score)
 
                 scope.reuse_variables()
 
-                real_Y_sample_score = discriminator(real_Y_sample,self.word_embedding_dim)
+                real_Y_sample_score = discriminator(real_Y_sample)
                 real_Y_sample_score = tf.Print(real_Y_sample_score,[real_Y_sample,real_Y_sample_score],"real_Y_sample,real_Y_sample_score: ")
-                dis_Y_penalty = get_gradient_penalty(X2Y_outputs,real_Y_sample,partial(discriminator,word_embedding_dim=self.word_embedding_dim))
+                dis_Y_penalty = get_gradient_penalty(X2Y_outputs,real_Y_sample,discriminator)
                 self.gpy = dis_Y_penalty
 
 
@@ -199,30 +203,27 @@ class cycle_gan():
         """
         def build_YXY_graph():
             with tf.variable_scope("YXY_inputs") as scope:
-                self.Y2X_inputs = tf.placeholder(dtype=tf.float32, shape=(self.batch_size, self.sequence_length,self.elmo_dim))
+                self.Y2X_inputs = tf.placeholder(dtype=tf.int32, shape=(self.batch_size, self.sequence_length))
                 Y2X_inputs = tf.concat([self.Y2X_inputs,EOS_slice],axis=1)
-                #Y2X_inputs_lens = tf.reduce_sum(tf.sign(Y2X_inputs), 1)
-                self.Y2X_inputs_lens = tf.placeholder(dtype=tf.int32, shape=(self.batch_size,))
-                Y2X_inputs_lens = self.Y2X_inputs_lens+1
-                #Y2X_inputs = tf.nn.embedding_lookup(word_embedding_matrix, Y2X_inputs)
+                Y2X_inputs_len = tf.reduce_sum(tf.sign(Y2X_inputs), 1)
+                Y2X_inputs = self.zero2EOS(Y2X_inputs)
+                #Y2X_inputs = tf.Print(Y2X_inputs,[Y2X_inputs],"Y2X_inputs: ")
+                Y2X_inputs = tf.nn.embedding_lookup(word_embedding_matrix, Y2X_inputs)
 
-                self.real_X_sample = tf.placeholder(dtype=tf.float32, shape=(self.batch_size,self.sequence_length,self.elmo_dim))
+                self.real_X_sample = tf.placeholder(dtype=tf.int32, shape=(self.batch_size,self.sequence_length))
                 real_X_sample = tf.concat([self.real_X_sample,EOS_slice],axis=1)
-                #real_X_sample_lens = tf.reduce_sum(tf.sign(real_X_sample), 1)
-                self.real_X_sample_lens = tf.placeholder(dtype=tf.int32, shape=(self.batch_size,))
-                real_X_sample_lens = self.real_X_sample_lens+1
-                #real_X_sample = tf.nn.embedding_lookup(word_embedding_matrix, real_X_sample)
+                real_X_sample_len = tf.reduce_sum(tf.sign(real_X_sample), 1)
+                real_X_sample = self.zero2EOS(real_X_sample)
+                real_X_sample = tf.nn.embedding_lookup(word_embedding_matrix, real_X_sample)
                 
                 X2Y_decoder_inputs = tf.concat([BOS_slice,self.Y2X_inputs],axis=1)
-                #X2Y_decoder_inputs = tf.nn.embedding_lookup(word_embedding_matrix, X2Y_decoder_inputs)
+                X2Y_decoder_inputs = tf.nn.embedding_lookup(word_embedding_matrix, X2Y_decoder_inputs)
 
+                Y2X_decoder_inputs = tf.zeros([self.batch_size,self.sequence_length+1],dtype=tf.int32) + self.BOS
                 if self.mode=='pretrain':
                     Y2X_decoder_inputs = tf.concat([BOS_slice,self.Y2X_inputs],axis=1)
-                else:
-                    Y2X_decoder_inputs = np.array(self.BOS*(self.batch_size*(self.sequence_length+1)))
-                    Y2X_decoder_inputs = Y2X_decoder_inputs.reshape(self.batch_size,self.sequence_length+1,-1)
-                    Y2X_decoder_inputs = tf.convert_to_tensor(Y2X_decoder_inputs)
-                #Y2X_decoder_inputs = tf.nn.embedding_lookup(word_embedding_matrix, Y2X_decoder_inputs)
+                    #Y2X_decoder_inputs = tf.Print(Y2X_decoder_inputs,[Y2X_decoder_inputs],"Y2X_decoder_inputs: ")
+                Y2X_decoder_inputs = tf.nn.embedding_lookup(word_embedding_matrix, Y2X_decoder_inputs)
 
 
             with tf.variable_scope("generator_Y2X") as scope:
@@ -230,7 +231,7 @@ class cycle_gan():
                 Y2X_outputs = seq2seq(
                     encoder_inputs = Y2X_inputs,
                     #encoder_length = self.lstm_length,
-                    encoder_length = Y2X_inputs_lens,
+                    encoder_length = Y2X_inputs_len,
                     decoder_inputs = Y2X_decoder_inputs,
                     word_embedding_dim = self.word_embedding_dim,
                     mode = self.mode
@@ -243,7 +244,7 @@ class cycle_gan():
                 X2X_outputs = seq2seq(
                     encoder_inputs = real_X_sample,
                     #encoder_length = self.lstm_length,
-                    encoder_length = real_X_sample_lens,
+                    encoder_length = real_X_sample_len,
                     decoder_inputs = real_X_sample,
                     word_embedding_dim = self.word_embedding_dim,
                     mode = self.mode
@@ -260,13 +261,13 @@ class cycle_gan():
                 )
 
             with tf.variable_scope("discriminator_X") as scope:
-                false_X_sample_score = discriminator_X(Y2X_outputs,self.word_embedding_dim)
+                false_X_sample_score = discriminator_X(Y2X_outputs)
                 self.false_X_sample_score = tf.reduce_mean(false_X_sample_score)
 
                 scope.reuse_variables()
 
-                real_X_sample_score = discriminator_X(real_X_sample,self.word_embedding_dim)
-                dis_X_penalty = get_gradient_penalty(Y2X_outputs,real_X_sample,partial(discriminator_X,word_embedding_dim=self.word_embedding_dim))
+                real_X_sample_score = discriminator_X(real_X_sample)
+                dis_X_penalty = get_gradient_penalty(Y2X_outputs,real_X_sample,discriminator_X)
 
 
             with tf.variable_scope("YXY_loss") as scope:
@@ -284,8 +285,17 @@ class cycle_gan():
         the graph begin in here
         """
 
-        BOS_slice = tf.convert_to_tensor(np.array(self.BOS*self.batch_size))
-        EOS_slice = tf.convert_to_tensor(np.array(self.EOS*self.batch_size))
+        BOS_slice = tf.ones([self.batch_size, 1], dtype=tf.int32)*self.BOS
+        EOS_slice = tf.ones([self.batch_size, 1], dtype=tf.int32)*self.EOS
+
+        #the word embedding are shared for generator
+        with tf.variable_scope('word_embedding_matrix') as scope:
+            init = tf.constant(self.utils.word_array)
+            word_embedding_matrix = tf.get_variable(
+                name="word_embedding_matrix",
+                initializer=init,
+                trainable = False
+            )
 
         build_XYX_graph()
         build_YXY_graph()
@@ -359,15 +369,13 @@ class cycle_gan():
         ops = [self.pretrain_X2Y_op,self.pretrain_Y2X_op,self.pretrain_X2Y_loss,self.pretrain_Y2X_loss,self.Y2X_test_outputs]
         if self.check_nan:
             ops.append(self.check_nan_op())
-        for X_batch,X_lens_batch,Y_batch,Y_lens_batch in self.utils.pretrain_generator_data_generator():
+        for X_batch,Y_batch in self.utils.pretrain_generator_data_generator():
             step += 1
 
             #use two different optimizers to pretrain generator 
             feed_dict = {
                 self.X2Y_inputs:X_batch,
-                self.X2Y_inputs_lens:X_lens_batch,
-                self.Y2X_inputs:Y_batch,
-                self.Y2X_inputs_lens:Y_lens_batch,
+                self.Y2X_inputs:Y_batch
             }
             if self.check_nan:
                 _,_,loss_X2Y,loss_Y2X,tt,check_nan_op = self.sess.run(ops,feed_dict=feed_dict)
@@ -420,7 +428,7 @@ class cycle_gan():
             print('load model from:',self.model_dir)
             self.discriminator_saver.restore(self.sess,tf.train.latest_checkpoint(dis_model_dir))
 
-        for real_X_batches,real_X_lens_batches,real_Y_batches,real_Y_lens_batches in self.utils.gan_data_generator():
+        for real_X_batches,real_Y_batches in self.utils.gan_data_generator():
             step += 1
 
             #train discriminator
@@ -430,13 +438,9 @@ class cycle_gan():
             for i in range(self.discriminator_iterations):
                 feed_dict = {
                     self.X2Y_inputs:real_X_batches[i+1],
-                    self.X2Y_inputs_lens:real_X_lens_batches[i+1],
                     self.Y2X_inputs:real_Y_batches[i+1],
-                    self.Y2X_inputs_lens:real_Y_lens_batches[i+1],
                     self.real_X_sample:real_X_batches[i],
-                    self.real_X_sample_lens:real_X_lens_batches[i],
-                    self.real_Y_sample:real_Y_batches[i],
-                    self.real_Y_sample_lens:real_Y_lens_batches[i]
+                    self.real_Y_sample:real_Y_batches[i]
                 }
                 #print(self.utils.id2sent(real_X_batches[i][0]))
                 if self.check_nan:
