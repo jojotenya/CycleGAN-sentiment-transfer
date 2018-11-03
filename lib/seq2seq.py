@@ -17,6 +17,8 @@ def seq2seq(
         word embedding and decoder outputs is
         word embedding
     """
+    #encoder_inputs = tf.Print(encoder_inputs,[encoder_inputs],"encoder_inputs: ")
+    #decoder_inputs = tf.Print(decoder_inputs,[decoder_inputs],"decoder_inputs: ")
  
     with tf.variable_scope("encoder") as scope:
         fw_cell = tf.contrib.rnn.LSTMCell(num_units=latent_dim, state_is_tuple=True)
@@ -33,6 +35,8 @@ def seq2seq(
         )
 
         output_fw, output_bw = encoder_outputs
+        #output_fw = tf.Print(output_fw,[output_fw],"output_fw: ")
+        #output_bw = tf.Print(output_bw,[output_bw],"output_bw: ")
         state_fw, state_bw = state
         encoder_outputs = tf.concat([output_fw,output_bw],2)
         encoder_state_c = tf.concat((state_fw.c, state_bw.c), 1)
@@ -60,5 +64,6 @@ def seq2seq(
         )
 
     decoder_batchmajor_outputs = tf.stack(decoder_outputs,axis=1)
+    #decoder_batchmajor_outputs = tf.Print(decoder_batchmajor_outputs,[decoder_batchmajor_outputs],"decoder_batchmajor_outputs: ")
     
     return decoder_batchmajor_outputs

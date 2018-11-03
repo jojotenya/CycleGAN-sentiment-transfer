@@ -79,7 +79,6 @@ class cycle_gan():
         def get_discriminator_loss(real_sample_score,false_sample_score,gradient_penalty):
             real_sample_score = tf.reduce_mean(real_sample_score)
             false_sample_score = tf.reduce_mean(false_sample_score)
-            #false_sample_score = tf.reduce_mean(false_sample_score)
             discriminator_loss = -(real_sample_score - false_sample_score) + 10.0*gradient_penalty
             
             return discriminator_loss
@@ -89,6 +88,8 @@ class cycle_gan():
             assert targets.get_shape()==outputs.get_shape()
             
             shape = targets.get_shape().as_list()
+            #targets = tf.Print(targets,[targets],"targets: ")
+            #outputs = tf.Print(outputs,[outputs],"outputs: ")
             loss = tf.reduce_sum(tf.pow(targets - outputs, 2)) / (reduce(lambda x, y: x*y, shape))
             
             return loss
@@ -111,6 +112,11 @@ class cycle_gan():
 
             return gradient_penalty
             
+        def gradient_clip(optimizer,loss,var_list):
+            gvs = optimizer.compute_gradients(loss,var_list = var_list)
+            capped_gvs = [(tf.clip_by_value(grad, -1., 1.), var) for grad, var in gvs]
+            return optimizer.apply_gradients(capped_gvs)
+
 
         """
         the following code builds X to Y to X graph
@@ -185,12 +191,14 @@ class cycle_gan():
 
             with tf.variable_scope("XYX_loss") as scope:
 
+                #X2Y_inputs = tf.Print(X2Y_inputs,[X2Y_inputs],"X2Y_inputs: ")
                 self.X2Y_reconstruction_loss = get_L2_loss(X2Y_inputs,Y2X_rec_outputs)
 
                 self.discriminator_Y_loss = get_discriminator_loss(real_Y_sample_score,false_Y_sample_score,dis_Y_penalty)
 
+                #real_Y_sample = tf.Print(real_Y_sample,[real_Y_sample],"real_Y_sample: ")
                 self.Y2Y_identity_loss = get_L2_loss(real_Y_sample,Y2Y_outputs)
-
+                #X2Y_inputs = tf.Print(X2Y_inputs,[X2Y_inputs],"X2Y_inputs: ")
                 self.pretrain_X2Y_loss = get_L2_loss(X2Y_inputs,X2Y_outputs)
 
         """
@@ -265,12 +273,15 @@ class cycle_gan():
 
             with tf.variable_scope("YXY_loss") as scope:
 
+                #Y2X_inputs = tf.Print(Y2X_inputs,[Y2X_inputs],"Y2X_inputs: ")
                 self.Y2X_reconstruction_loss = get_L2_loss(Y2X_inputs,X2Y_rec_outputs)
                 
                 self.discriminator_X_loss = get_discriminator_loss(real_X_sample_score,false_X_sample_score,dis_X_penalty)
+                #real_X_sample = tf.Print(real_X_sample,[real_X_sample],"real_X_sample: ")
 
                 self.X2X_identity_loss = get_L2_loss(real_X_sample,X2X_outputs)
 
+                #Y2X_inputs = tf.Print(Y2X_inputs,[Y2X_inputs],"Y2X_inputs: ")
                 self.pretrain_Y2X_loss = get_L2_loss(Y2X_inputs,Y2X_outputs)
 
 
@@ -301,35 +312,41 @@ class cycle_gan():
             self.generator_Y2X_loss = (self.Y2X_reconstruction_loss + self.X2Y_reconstruction_loss)*2.0 - self.false_X_sample_score + self.X2X_identity_loss
 
         with tf.variable_scope('optimizer') as scope:
-            self.train_discriminator_X_op = tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0.5, beta2=0.9).minimize(
-                self.discriminator_X_loss, 
-                var_list = self.discriminator_X_variables
-            )
+            #self.train_discriminator_X_op = tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0.5, beta2=0.9).minimize(
+            #    self.discriminator_X_loss, 
+            #    var_list = self.discriminator_X_variables
+            #)
+            self.train_discriminator_X_op = gradient_clip(tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0.5, beta2=0.9),self.discriminator_X_loss,self.discriminator_X_variables)
 
-            self.train_discriminator_Y_op = tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0.5, beta2=0.9).minimize(
-                self.discriminator_Y_loss, 
-                var_list = self.discriminator_Y_variables
-            )
+            #self.train_discriminator_Y_op = tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0.5, beta2=0.9).minimize(
+            #    self.discriminator_Y_loss, 
+            #    var_list = self.discriminator_Y_variables
+            #)
+            self.train_discriminator_Y_op = gradient_clip(tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0.5, beta2=0.9),self.discriminator_Y_loss,self.discriminator_Y_variables)
 
-            self.train_Y2X_op = tf.train.RMSPropOptimizer(0.0001).minimize(
-                self.generator_Y2X_loss,
-                var_list=self.generator_Y2X_variables
-            )
+            #self.train_Y2X_op = tf.train.RMSPropOptimizer(0.0001).minimize(
+            #    self.generator_Y2X_loss,
+            #    var_list=self.generator_Y2X_variables
+            #)
+            self.train_Y2X_op = gradient_clip(tf.train.RMSPropOptimizer(0.0001),self.generator_Y2X_loss,self.generator_Y2X_variables)
 
-            self.train_X2Y_op = tf.train.RMSPropOptimizer(0.0001).minimize(
-                self.generator_X2Y_loss,
-                var_list=self.generator_X2Y_variables
-            )
+            #self.train_X2Y_op = tf.train.RMSPropOptimizer(0.0001).minimize(
+            #    self.generator_X2Y_loss,
+            #    var_list=self.generator_X2Y_variables
+            #)
+            self.train_X2Y_op = gradient_clip(tf.train.RMSPropOptimizer(0.0001),self.generator_X2Y_loss,self.generator_X2Y_variables)
 
-            self.Y2Y_identity_op = tf.train.AdamOptimizer().minimize(
-                self.Y2Y_identity_loss,
-                var_list=self.generator_X2Y_variables
-            )
+            #self.Y2Y_identity_op = tf.train.AdamOptimizer().minimize(
+            #    self.Y2Y_identity_loss,
+            #    var_list=self.generator_X2Y_variables
+            #)
+            self.Y2Y_identity_op = gradient_clip(tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0.5, beta2=0.9),self.Y2Y_identity_loss,self.generator_X2Y_variables)
 
-            self.X2X_identity_op = tf.train.AdamOptimizer().minimize(
-                self.X2X_identity_loss,
-                var_list=self.generator_Y2X_variables
-            )
+            #self.X2X_identity_op = tf.train.AdamOptimizer().minimize(
+            #    self.X2X_identity_loss,
+            #    var_list=self.generator_Y2X_variables
+            #)
+            self.X2X_identity_op = gradient_clip(tf.train.AdamOptimizer(learning_rate=1e-4, beta1=0.5, beta2=0.9),self.X2X_identity_loss,self.generator_Y2X_variables)
 
             self.pretrain_X2Y_op = tf.train.AdamOptimizer().minimize(
                 self.pretrain_X2Y_loss,
