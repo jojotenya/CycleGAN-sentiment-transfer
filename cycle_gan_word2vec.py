@@ -490,7 +490,6 @@ class cycle_gan():
                         ops,\
                         feed_dict=feed_dict)
                 
-                print('trained_op===========')
                 xy_l += l0
                 yx_l += l1
                 xy_r += r0
