@@ -79,7 +79,6 @@ class cycle_gan():
         def get_discriminator_loss(real_sample_score,false_sample_score,gradient_penalty):
             real_sample_score = tf.reduce_mean(real_sample_score)
             false_sample_score = tf.reduce_mean(false_sample_score)
-            real_sample_score = tf.Print(real_sample_score,[real_sample_score,false_sample_score],"real_sample_score,false: ")
             #false_sample_score = tf.reduce_mean(false_sample_score)
             discriminator_loss = -(real_sample_score - false_sample_score) + 10.0*gradient_penalty
             
@@ -121,9 +120,7 @@ class cycle_gan():
                 self.X2Y_inputs = tf.placeholder(dtype=tf.int32, shape=(self.batch_size, self.sequence_length))
                 X2Y_inputs = tf.concat([self.X2Y_inputs,EOS_slice],axis=1)
                 X2Y_inputs_len = tf.reduce_sum(tf.sign(X2Y_inputs), 1)
-                #X2Y_inputs_len = tf.Print(X2Y_inputs_len,[X2Y_inputs_len],"X2Y_inputs_len: ")
                 X2Y_inputs = self.zero2EOS(X2Y_inputs)
-                #X2Y_inputs = tf.Print(X2Y_inputs,[X2Y_inputs],"X2Y_inputs: ")
                 X2Y_inputs = tf.nn.embedding_lookup(word_embedding_matrix, X2Y_inputs)
 
                 self.real_Y_sample = tf.placeholder(dtype=tf.int32, shape=(self.batch_size,self.sequence_length))
@@ -139,7 +136,6 @@ class cycle_gan():
                 X2Y_decoder_inputs = tf.zeros([self.batch_size,self.sequence_length+1],dtype=tf.int32) + self.BOS
                 if self.mode=='pretrain':
                     X2Y_decoder_inputs = tf.concat([BOS_slice,self.X2Y_inputs],axis=1)
-                    #X2Y_decoder_inputs = tf.Print(X2Y_decoder_inputs,[X2Y_decoder_inputs],"X2Y_decoder_inputs: ")
                 #X2Y_decoder_inputs_len = tf.reduce_sum(tf.sign(X2Y_decoder_inputs), 1)
                 X2Y_decoder_inputs = tf.nn.embedding_lookup(word_embedding_matrix, X2Y_decoder_inputs)
 
@@ -183,7 +179,6 @@ class cycle_gan():
                 scope.reuse_variables()
 
                 real_Y_sample_score = discriminator(real_Y_sample)
-                real_Y_sample_score = tf.Print(real_Y_sample_score,[real_Y_sample,real_Y_sample_score],"real_Y_sample,real_Y_sample_score: ")
                 dis_Y_penalty = get_gradient_penalty(X2Y_outputs,real_Y_sample,discriminator)
                 self.gpy = dis_Y_penalty
 
@@ -207,7 +202,6 @@ class cycle_gan():
                 Y2X_inputs = tf.concat([self.Y2X_inputs,EOS_slice],axis=1)
                 Y2X_inputs_len = tf.reduce_sum(tf.sign(Y2X_inputs), 1)
                 Y2X_inputs = self.zero2EOS(Y2X_inputs)
-                #Y2X_inputs = tf.Print(Y2X_inputs,[Y2X_inputs],"Y2X_inputs: ")
                 Y2X_inputs = tf.nn.embedding_lookup(word_embedding_matrix, Y2X_inputs)
 
                 self.real_X_sample = tf.placeholder(dtype=tf.int32, shape=(self.batch_size,self.sequence_length))
@@ -222,7 +216,6 @@ class cycle_gan():
                 Y2X_decoder_inputs = tf.zeros([self.batch_size,self.sequence_length+1],dtype=tf.int32) + self.BOS
                 if self.mode=='pretrain':
                     Y2X_decoder_inputs = tf.concat([BOS_slice,self.Y2X_inputs],axis=1)
-                    #Y2X_decoder_inputs = tf.Print(Y2X_decoder_inputs,[Y2X_decoder_inputs],"Y2X_decoder_inputs: ")
                 Y2X_decoder_inputs = tf.nn.embedding_lookup(word_embedding_matrix, Y2X_decoder_inputs)
 
 
@@ -451,9 +444,6 @@ class cycle_gan():
                     _,_,loss_X,loss_Y = self.sess.run(
                         ops,\
                         feed_dict=feed_dict)
-                self.discriminator_X_loss = tf.Print(self.discriminator_X_loss,[self.discriminator_X_loss],"loss_X: ")
-                self.discriminator_Y_loss = tf.Print(self.discriminator_Y_loss,[self.discriminator_Y_loss],"loss_Y: ")
-                print('self.discriminator_iteration: ',self.discriminator_iterations)
 
                 dis_X_loss += loss_X/self.discriminator_iterations
                 dis_Y_loss += loss_Y/self.discriminator_iterations
@@ -463,7 +453,9 @@ class cycle_gan():
                 #train generator only
                 feed_dict = {
                     self.X2Y_inputs:real_X_batches[self.discriminator_iterations + 3],
-                    self.Y2X_inputs:real_Y_batches[self.discriminator_iterations + 3]
+                    self.Y2X_inputs:real_Y_batches[self.discriminator_iterations + 3],
+                    self.real_X_sample:real_X_batches[self.discriminator_iterations + 3],
+                    self.real_Y_sample:real_Y_batches[self.discriminator_iterations + 3]
                 }
                 
                 if self.check_nan:
@@ -498,6 +490,7 @@ class cycle_gan():
                         ops,\
                         feed_dict=feed_dict)
                 
+                print('trained_op===========')
                 xy_l += l0
                 yx_l += l1
                 xy_r += r0
@@ -509,15 +502,15 @@ class cycle_gan():
 
             #make summary
             if step%(summary_step)==1:
-                print('step: {step} dis_X_loss: {x_l} dis_Y_loss: {y_l} generator_X2Y_loss: {xy_l} generator_Y2X_loss: {yx_l}'' X2Y_reconstruction_loss: {xy_r} Y2X_reconstruction_loss: {yx_r}'' Y2Y_identity_loss: {yy_i} X2X_identity_loss: {xx_i}'.format(x_l=dis_X_loss/summary_step,\
-      y_l=dis_Y_loss/summary_step,\
-      step=step,\
-      xy_l=xy_l/summary_step,\
-      yx_l=yx_l/summary_step,\
-      xy_r=xy_r/summary_step,\
-      yx_r=yx_r/summary_step,\
-      yy_i=yy_i/summary_step,\
-      xx_i=xx_i/summary_step))
+                print('step: {step} dis_X_loss: {x_l} dis_Y_loss: {y_l} generator_X2Y_loss: {xy_l} generator_Y2X_loss: {yx_l}'' X2Y_reconstruction_loss: {xy_r} Y2X_reconstruction_loss: {yx_r}'' Y2Y_identity_loss: {yy_i} X2X_identity_loss: {xx_i}'.format(              x_l=dis_X_loss/summary_step,\
+                y_l=dis_Y_loss/summary_step,\
+                step=step,\
+                xy_l=xy_l/summary_step,\
+                yx_l=yx_l/summary_step,\
+                xy_r=xy_r/summary_step,\
+                yx_r=yx_r/summary_step,\
+                yy_i=yy_i/summary_step,\
+                xx_i=xx_i/summary_step))
                 if step>self.pretrain_discriminator_steps:
                     print('origin_X:',self.utils.id2sent(origin[0]))
                     print('pred:',self.utils.vec2sent(pred[0]))
